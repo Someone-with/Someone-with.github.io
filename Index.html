@@ -1,210 +1,223 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    
+<head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <!---- Website Information ---->
-    <title>Drive Mad</title>
-	<meta name="robots" content="noindex,nofollow" />
-    <!-- Favicon icon -->
-    <link rel="shortcut icon" type="image/png" href="icon16.png">
-    <link rel="stylesheet" href="./css/style.css">
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3964980751221225"
-     crossorigin="anonymous"></script>
-  </head>
-  <body class="@@dashboard dark-theme">
-    <div id="main-wrapper">
-        <div class="container">
-          <div class="header-right">
-            <!-- <div class="theme-switch"><i class="ri-sun-line"></i></div> -->
-            <div class="dark-light-toggle theme-switch" onclick="themeToggle()">
-              <span class="dark">
-                <i class="ri-moon-line"></i>
-              </span>
-              <span class="light">
-                <i class="ri-sun-line"></i>
-              </span> 
-            </div>
-          </div>
-          <div class="row">
-            <div class="col-12">
-              <style>
-                #lbaTop, #lbaBottom {
-                    position: relative;
-                    width: 100%;
-                    font-size: calc(5px + 0.5vmax + 0.5vh);
-                    letter-spacing: 1vw;
+    <title>Drive Mad Clone</title>
+    <style>
+        body { margin: 0; background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 100%); display: flex; flex-direction: column; align-items: center; font-family: Arial, sans-serif; }
+        canvas { border: 3px solid #333; background: linear-gradient(#90EE90, #228B22); box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #ui { position: absolute; top: 10px; left: 10px; color: white; font-size: 20px; text-shadow: 2px 2px 4px black; }
+        #levelComplete { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0,255,0,0.9); color: black; padding: 20px; border-radius: 10px; font-size: 32px; display: none; text-align: center; }
+        button { margin-top: 10px; padding: 10px 20px; font-size: 18px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div>Level: <span id="level">1</span> | Speed: <span id="speed">0</span></div>
+        <div>Arrow Keys / WASD: Drive & Balance</div>
+    </div>
+    <canvas id="canvas" width="800" height="600"></canvas>
+    <div id="levelComplete">
+        <div>Level Complete! 🎉</div>
+        <button onclick="nextLevel()">Next Level</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const levelEl = document.getElementById('level');
+        const speedEl = document.getElementById('speed');
+        const completeEl = document.getElementById('levelComplete');
+
+        // Physics
+        let car = { x: 100, y: 400, vx: 0, vy: 0, angle: 0, angularVel: 0, size: 30, color: '#FF4444' };
+        let keys = {};
+        let currentLevel = 1;
+        let cameraX = 0;
+        let gameWon = false;
+
+        // Input
+        document.addEventListener('keydown', e => keys[e.key.toLowerCase()] = true);
+        document.addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+        // Levels: platforms, ramps, obstacles (simple poly lines)
+        const levels = [
+            // Level 1: Flat
+            [{ points: [[0,500],[800,500]], color: '#8B4513' }, { points: [[0,550],[800,550]], color: '#654321' }, { flag: [750,450] }],
+            // Level 2: Ramp
+            [{ points: [[0,500],[400,500],[450,400],[800,400]], color: '#8B4513' }, { points: [[0,550],[800,550]], color: '#654321' }, { flag: [750,350] }],
+            // Level 3: Bump
+            [{ points: [[0,500],[200,500],[250,450],[400,450],[450,500],[800,500]], color: '#8B4513' }, { points: [[0,550],[800,550]], color: '#654321' }, { flag: [750,450] }],
+            // Add more levels...
+            [{ points: [[0,500],[100,500],[150,400],[300,400],[350,500],[800,500]], color: '#8B4513' }, { points: [[0,550],[800,550]], color: '#654321' }, { flag: [750,450] }]
+        ];
+
+        let levelData = levels[0];
+
+        function update() {
+            if (gameWon) return;
+
+            // Input
+            let accel = 0;
+            let tilt = 0;
+            if (keys['arrowup'] || keys['w']) accel = 0.3;
+            if (keys['arrowdown'] || keys['s']) accel = -0.2;
+            if (keys['arrowleft'] || keys['a']) tilt = -0.05;
+            if (keys['arrowright'] || keys['d']) tilt = 0.05;
+
+            // Physics update
+            car.angularVel += tilt;
+            car.angularVel *= 0.9; // Damp
+            car.angle += car.angularVel;
+
+            let dx = Math.cos(car.angle) * accel;
+            let dy = Math.sin(car.angle) * accel;
+            car.vx += dx;
+            car.vy += dy;
+
+            car.vx *= 0.98; // Friction
+            car.vy *= 0.98;
+            car.x += car.vx;
+            car.y += car.vy;
+
+            speedEl.textContent = Math.sqrt(car.vx*car.vx + car.vy*car.vy).toFixed(1);
+
+            // Camera follow
+            cameraX = car.x - canvas.width / 2;
+
+            // Collision with ground (simple line collision)
+            collideWithLevel();
+
+            // Check flag
+            if (levelData.flag && Math.hypot(car.x - levelData.flag[0], car.y - levelData.flag[1]) < 40) {
+                completeEl.style.display = 'block';
+            }
+
+            // Flip check (if too tilted)
+            if (Math.abs(car.angle) > Math.PI / 2) {
+                alert('Flipped! Restarting level...');
+                resetLevel();
+            }
+        }
+
+        function collideWithLevel() {
+            for (let obj of levelData) {
+                if (obj.points) {
+                    // Simple point-to-line collision for car center (approx)
+                    for (let i = 0; i < obj.points.length - 1; i++) {
+                        let p1 = obj.points[i], p2 = obj.points[i+1];
+                        let dist = pointToLineDist(car.x, car.y, p1[0], p1[1], p2[0], p2[1]);
+                        if (dist < car.size / 2) {
+                            // Reflect velocity
+                            let normal = perpendicular(p2[0] - p1[0], p2[1] - p1[1]);
+                            let dot = car.vx * normal[0] + car.vy * normal[1];
+                            car.vx -= 2 * dot * normal[0];
+                            car.vy -= 2 * dot * normal[1];
+                            // Push out
+                            let push = (car.size / 2 - dist) * 1.1;
+                            car.x += normal[0] * push;
+                            car.y += normal[1] * push;
+                        }
+                    }
                 }
-                #lbaTop {
-                    /* margin-top: 2vh; */
-                    padding-top: 8px;
-                    padding-bottom: 8px;
-                    background-color: rgba(0, 0, 0, 0.3);
-                    text-align: center;
-                    margin-bottom: 10px;
+            }
+        }
+
+        function pointToLineDist(px, py, x1, y1, x2, y2) {
+            let A = px - x1;
+            let B = py - y1;
+            let C = x2 - x1;
+            let D = y2 - y1;
+            let dot = A * C + B * D;
+            let lenSq = C * C + D * D;
+            let param = dot / lenSq;
+            let xx, yy;
+            if (param < 0) { xx = x1; yy = y1; }
+            else if (param > 1) { xx = x2; yy = y2; }
+            else { xx = x1 + param * C; yy = y1 + param * D; }
+            let dx = px - xx;
+            let dy = py - yy;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function perpendicular(dx, dy) {
+            let len = Math.sqrt(dx*dx + dy*dy);
+            return [ -dy / len, dx / len ];
+        }
+
+        function resetLevel() {
+            car.x = 100;
+            car.y = 400;
+            car.vx = 0;
+            car.vy = 0;
+            car.angle = 0;
+            car.angularVel = 0;
+            cameraX = 0;
+        }
+
+        function nextLevel() {
+            currentLevel++;
+            levelEl.textContent = currentLevel;
+            if (currentLevel >= levels.length) {
+                alert('You beat all levels! 🎊');
+                gameWon = true;
+                return;
+            }
+            levelData = levels[currentLevel % levels.length]; // Cycle for demo
+            resetLevel();
+            completeEl.style.display = 'none';
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw level
+            ctx.save();
+            ctx.translate(-cameraX, 0);
+            for (let obj of levelData) {
+                if (obj.points) {
+                    ctx.fillStyle = obj.color;
+                    ctx.beginPath();
+                    ctx.moveTo(obj.points[0][0], obj.points[0][1]);
+                    for (let i = 1; i < obj.points.length; i++) {
+                        ctx.lineTo(obj.points[i][0], obj.points[i][1]);
+                    }
+                    ctx.lineTo(obj.points[obj.points.length-1][0], obj.points[obj.points.length-1][1] + 50);
+                    ctx.lineTo(obj.points[0][0], obj.points[0][1] + 50);
+                    ctx.closePath();
+                    ctx.fill();
                 }
-                </style>
-              <div id="lbaTop">-ADVERTISEMENTS-</div>
-              <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3964980751221225"
-     crossorigin="anonymous"></script>
-<!-- gswitch-miss -->
-<ins class="adsbygoogle"
-     style="display:inline-block;width:728px;height:90px"
-     data-ad-client="ca-pub-3964980751221225"
-     data-ad-slot="6429166572"></ins>
-<script>
-     (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
-              <div id="lbaTop">-ADVERTISEMENTS-</div>
-              
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="sidebar">
-        <div class="brand-logo">
-          <a class="full-logo" href="./">
-            <img src="./images/logoi.png" alt="">
-          </a>
-        </div>
-        <div class="menu">
-          <ul>
-            <li>
-              <a href="/slope.html">
-                <span>
-                  <i class="ri-layout-grid-fill"></i>
-                </span>
-                <span class="nav-text">Slope</span>
-              </a>
-            </li>
-            <li class="">
-              <a href="/tunnel-rush.html">
-                <span>
-                  <i class="ri-briefcase-line"></i>
-                </span>
-                <span class="nav-text">Tunnel Rush</span>
-              </a>
-            </li>
-            <li class="">
-              <a href="/iron-snout-2.html">
-                <span>
-                  <i class="ri-heart-line"></i>
-                </span>
-                <span class="nav-text">Iron Snout 2</span>
-              </a>
-            </li>
-            <li class="">
-              <a href="/1v1-lol.html">
-                <span>
-                  <i class="ri-star-line"></i>
-                </span>
-                <span class="nav-text">1v1 LoL</span>
-              </a>
-            </li>
-            <li class="">
-              <a href="/ovo.html">
-                <span>
-                  <i class="ri-wallet-line"></i>
-                </span>
-                <span class="nav-text">Ovo</span>
-              </a>
-            </li>
-            
-            
-          </ul>
-        </div>
-      </div>
-      <div class="content-body">
-        <div class="container">
-          <div class="row">
-            <div  class="col-xxl-12" style="text-align: center;"><script type="text/javascript">
-              atOptions = {
-                'key' : '9cca3f3606cb30a272c1d4558911d794',
-                'format' : 'iframe',
-                'height' : 90,
-                'width' : 728,
-                'params' : {}
-              };
-              document.write('<scr' + 'ipt type="text/javascript" src="//www.highcpmcreativeformat.com/9cca3f3606cb30a272c1d4558911d794/invoke.js"></scr' + 'ipt>');
-            </script></div><div class="col-xxl-12">
-                <iframe src="https://ubg77.github.io/game131022/drive-mad/" frameborder="0" style="width:100%;height:85vh"></iframe><div style="text-align: center;"><script type="text/javascript">
-                  atOptions = {
-                    'key' : 'bd60cf566a88493dd44e6f64569ef583',
-                    'format' : 'iframe',
-                    'height' : 250,
-                    'width' : 300,
-                    'params' : {}
-                  };
-                  document.write('<scr' + 'ipt type="text/javascript" src="//www.highcpmcreativeformat.com/bd60cf566a88493dd44e6f64569ef583/invoke.js"></scr' + 'ipt>');
-                </script></div>
-                <h1>Drive Mad</h1>
-            </div>
-              <style>
-              #lbaTop, #lbaBottom {
-                  position: relative;
-                  width: 100%;
-                  font-size: calc(5px + 0.5vmax + 0.5vh);
-                  letter-spacing: 1vw;
-              }
-              #lbaTop {
-                  /* margin-top: 2vh; */
-                  padding-top: 8px;
-                  padding-bottom: 8px;
-                  background-color: rgba(0, 0, 0, 0.3);
-                  text-align: center;
-              }
-              </style>
-            <div id="lbaTop">-ADVERTISEMENTS-</div>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3964980751221225"
-     crossorigin="anonymous"></script>
-<ins class="adsbygoogle"
-     style="display:block"
-     data-ad-format="autorelaxed"
-     data-ad-client="ca-pub-3964980751221225"
-     data-ad-slot="5241392152"></ins>
-<script>
-     (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
-            <div id="lbaTop">-ADVERTISEMENTS-</div>
-            <section>
-              <h3>Description</h3>
-              <p>Get ready for an adrenaline-fueled ride in Drive Mad! This high-octane racing game puts you behind the wheel of powerful vehicles as you tear through dynamic environments filled with obstacles and challenges. Feel the rush of speed as you compete against opponents in intense races, or unleash chaos in the thrilling destruction mode where wrecking everything in sight is the goal. With stunning graphics and realistic physics, Drive Mad promises an exhilarating gaming experience like no other.</p>
-              <h3>Controls:</h3>
-              <p>Use the arrow keys or WASD keys to control your vehicle's movement.<br>
-                  Press the spacebar to use nitro for a speed boost.<br>
-                  Use the "R" key to reset your vehicle if you get stuck or crash.
-              </p>
-              <h3>Tips and tricks:</h3>
-              <ul>
-                  <li>Master drifting around corners to maintain control at high speeds.</li>
-                  <li>Collect power-ups scattered throughout the track to gain an advantage over your opponents.</li>
-                  <li>Pay attention to your surroundings and anticipate obstacles to avoid collisions.</li>
-              </ul>
-              <h3>About the creator:</h3>
-              <p>Drive Mad is developed by Velocity Games, a passionate team dedicated to delivering thrilling racing experiences.</p>
-          </section>
-           
-              <div class="col-12">
-                <div class="card filter-tab m-0">
-                  <div class="card-header">
-                    <h4 class="card-title">Similar Games</h4>
-                    
-                  </div>
-                  <div class="card-body bs-0 p-0 bg-transparent">
-                    <div class="row" id="list-game">
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-    <script src="./vendor/jquery/jquery.min.js"></script>
-    <script src="./vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
-    <script src="./vendor/chartjs/chart.bundle.min.js"></script>
-    <script src="./js/plugins/chartjs-line-init.js"></script>
-    <script src="./js/plugins/chartjs-donut.js"></script>
-    <script src="./js/scripts.js"></script>
-  </body>
+                if (obj.flag) {
+                    ctx.fillStyle = 'lime';
+                    ctx.fillRect(obj.flag[0]-10, obj.flag[1]-30, 20, 40);
+                    ctx.fillStyle = 'green';
+                    ctx.fillRect(obj.flag[0]-5, obj.flag[1]-35, 10, 10);
+                }
+            }
+            ctx.restore();
+
+            // Draw car
+            ctx.save();
+            ctx.translate(car.x - cameraX, car.y);
+            ctx.rotate(car.angle);
+            ctx.fillStyle = car.color;
+            ctx.fillRect(-car.size/2, -10, car.size, 20);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(-car.size/2 + 5, -8, 8, 6);
+            ctx.fillRect(car.size/2 - 13, -8, 8, 6);
+            ctx.restore();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        levelEl.textContent = currentLevel;
+        resetLevel();
+        loop();
+    </script>
+</body>
 </html>
